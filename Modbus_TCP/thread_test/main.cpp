@@ -7,6 +7,11 @@ static EventQueue queue(0);
 EventQueue queue2(32*EVENTS_EVENT_SIZE);
 static int cnt = 0;
 
+DigitalOut led1(LED1);
+DigitalOut led2(LED2);
+DigitalOut led3(LED3);
+
+
 void handler(int count);
 
 // Creates events for later bound
@@ -57,6 +62,31 @@ void count_handler(){
     printf("COUNT : %d\r\n", cnt);
 }
 
+void toggle_led1(){
+    led1 = !led1;
+    printf("Toggle LED1\r\n");
+}
+
+void toggle_led2(){
+    led2 = !led2;
+    printf("Toggle LED2\r\n");
+}
+void toggle_led3(){
+    led3 = !led3;
+    printf("Toggle LED3\r\n");
+}
+
+#include "rtos.h"
+Thread thread;
+volatile bool running = true;
+void blink(DigitalOut* led){
+    while(running){
+        *led = !*led;
+        ThisThread::sleep_for(1s);
+        printf("Toggle Selected led\r\n");
+    }
+}
+
 int main()
 {
     printf("*** start ***\n");
@@ -83,8 +113,16 @@ int main()
 
     event_thread.join();
 
-    queue2.call_every(1s, count_handler);
+    queue2.call_every(1s, toggle_led1);
+    queue2.call_every(2s, toggle_led2);
     queue2.dispatch_forever();
+
+    thread.start(callback(blink, &led3));
+    // ThisThread::sleep_for(5000);    // 5초간 메인 멈춤
+    wait_ns(1000);
+    running = false;
+    thread.join();
+
 
     return 0;
 }

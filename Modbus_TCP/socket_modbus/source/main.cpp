@@ -415,6 +415,8 @@ void function_while(){
     }
 }
 
+
+
 ///////////////////////////////////////////MAIN///////////////////////////////////////////
 
 
@@ -448,15 +450,8 @@ int main() {
     // // Transaction ID 2bytes, Protocol ID 2bytes, Length 2bytes, [Unit ID 1byte, Function code 1byte, Data]
     // Data => Start Register 2bytes, Number of data 2bytes
 
-    // button1.mode(PullUp);
-    // t1.start(callback(&queue, &EventQueue::dispatch_forever));
-    // printf("Starting ID : %p\r\n", ThisThread::get_id());
-    // button1.rise(press_btn_handler);
-
-    // t1.start(callback(&queue, &EventQueue::dispatch_forever));
     const char* uart_text = "a or b : ";
     uart.write(uart_text, strlen(uart_text));
-    // printf("a or b : ");
     char* c = new char[1];
     char ch = getchar();
     putchar(ch);

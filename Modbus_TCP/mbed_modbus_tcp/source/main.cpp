@@ -15,8 +15,10 @@
  */
 
 #include "mbed.h"
-#include "wifi_helper.h"
 #include "mbed-trace/mbed_trace.h"
+
+#include "rtos.h"
+#include "main.h"
 
 #if MBED_CONF_APP_USE_TLS_SOCKET
 #include "root_ca_cert.h"
@@ -26,15 +28,28 @@
 #endif
 #endif // MBED_CONF_APP_USE_TLS_SOCKET
 
+Thread thread;
+DigitalOut led3(LED3);
+volatile bool running = true;
+volatile bool running_keyboard = true;
+
+
 class SocketDemo {
-    static constexpr size_t MAX_NUMBER_OF_ACCESS_POINTS = 10;
-    static constexpr size_t MAX_MESSAGE_RECEIVED_LENGTH = 100;
+    
 
 #if MBED_CONF_APP_USE_TLS_SOCKET
     static constexpr size_t REMOTE_PORT = 443; // tls port
 #else
     static constexpr size_t REMOTE_PORT = 80; // standard HTTP port
 #endif // MBED_CONF_APP_USE_TLS_SOCKET
+
+protected:
+    #if MBED_CONF_APP_USE_TLS_SOCKET
+        TLSSocket _socket;
+    #else
+        TCPSocket _socket;
+    #endif // MBED_CONF_APP_USE_TLS_SOCKET
+
 
 public:
     SocketDemo() : _net(NetworkInterface::get_default_instance())
@@ -48,24 +63,14 @@ public:
         }
     }
 
-    void run()
+
+    void run(const char* IP, uint16_t PORT)
     {
         if (!_net) {
             printf("Error! No network interface found.\r\n");
             return;
         }
 
-        /* if we're using a wifi interface run a quick scan */
-        if (_net->wifiInterface()) {
-            /* the scan is not required to connect and only serves to show visible access points */
-            wifi_scan();
-
-            /* in this example we use credentials configured at compile time which are used by
-             * NetworkInterface::connect() but it's possible to do this at runtime by using the
-             * WiFiInterface::connect() which takes these parameters as arguments */
-        }
-
-        /* connect will perform the action appropriate to the interface type to connect to the network */
 
         printf("Connecting to the network...\r\n");
 
@@ -97,34 +102,27 @@ public:
 
         SocketAddress address;
 
-        if (!resolve_hostname(address)) {
-            return;
-        }
+        // if (!resolve_hostname(address)) {
+        //     return;
+        // }
 
-        address.set_port(REMOTE_PORT);
+        address.set_port(PORT);
+        address.set_ip_address(IP);
 
         /* we are connected to the network but since we're using a connection oriented
          * protocol we still need to open a connection on the socket */
-
-        printf("Opening connection to remote port %d\r\n", REMOTE_PORT);
+        printf("Socket Connect IP : %s\r\n", IP);
+        printf("Opening connection to remote port : %d\r\n", PORT);
 
         result = _socket.connect(address);
         if (result != 0) {
             printf("Error! _socket.connect() returned: %d\r\n", result);
+            printf("Please check modbus connection or IP\r\n");
+            return;
+        }else{
+            printf("Socket connect successfully\r\n");
             return;
         }
-
-        /* exchange an HTTP request and response */
-
-        if (!send_http_request()) {
-            return;
-        }
-
-        if (!receive_http_response()) {
-            return;
-        }
-
-        printf("Demo concluded successfully \r\n");
     }
 
 private:
@@ -201,32 +199,6 @@ private:
         return true;
     }
 
-    void wifi_scan()
-    {
-        WiFiInterface *wifi = _net->wifiInterface();
-
-        WiFiAccessPoint ap[MAX_NUMBER_OF_ACCESS_POINTS];
-
-        /* scan call returns number of access points found */
-        int result = wifi->scan(ap, MAX_NUMBER_OF_ACCESS_POINTS);
-
-        if (result <= 0) {
-            printf("WiFiInterface::scan() failed with return value: %d\r\n", result);
-            return;
-        }
-
-        printf("%d networks available:\r\n", result);
-
-        for (int i = 0; i < result; i++) {
-            printf("Network: %s secured: %s BSSID: %hhX:%hhX:%hhX:%hhx:%hhx:%hhx RSSI: %hhd Ch: %hhd\r\n",
-                   ap[i].get_ssid(), get_security_string(ap[i].get_security()),
-                   ap[i].get_bssid()[0], ap[i].get_bssid()[1], ap[i].get_bssid()[2],
-                   ap[i].get_bssid()[3], ap[i].get_bssid()[4], ap[i].get_bssid()[5],
-                   ap[i].get_rssi(), ap[i].get_channel());
-        }
-        printf("\r\n");
-    }
-
     void print_network_info()
     {
         /* print the network info */
@@ -242,12 +214,70 @@ private:
 private:
     NetworkInterface *_net;
 
-#if MBED_CONF_APP_USE_TLS_SOCKET
-    TLSSocket _socket;
-#else
-    TCPSocket _socket;
-#endif // MBED_CONF_APP_USE_TLS_SOCKET
+
 };
+
+
+class Modbus_Protocol:SocketDemo{
+    Thread monitor;
+    short transaction_ID;
+    short protocol_ID;
+    short data_length;
+    char unit_ID;
+    char function_code;
+public:
+    Modbus_Protocol()
+    {
+        Modbus_Protocol::_Modbus_ADU ADU;
+        transaction_ID = 0;
+    }
+    ~Modbus_Protocol()
+    {
+
+    }
+
+    struct _Modbus_ADU{
+        
+    }Modbus_ADU;
+
+    static void monitoring(DigitalOut* led)
+    {
+        while(running)
+        {
+            *led = !*led;
+            printf("monitoring start\r\n");
+            ThisThread::sleep_for(1s);
+        }
+    }
+
+    void start()
+    {
+        monitor.start(callback(Modbus_Protocol::monitoring, &led3));
+    }
+
+    // int receive_response(struct _Modbus_ADU *ADU, int received_bytes){
+    int receive_response(int received_bytes){
+        uint8_t buffer[MAX_MESSAGE_RECEIVED_LENGTH];
+        int remaining_bytes = MAX_MESSAGE_RECEIVED_LENGTH;
+        int number_of_bytes = 0;
+        _socket.recv(buffer, remaining_bytes);
+        
+        printf("=====================================================================\r\n");
+        printf("%d : ", transaction_ID);
+        for (int i = 2; i < received_bytes; i++) {
+            printf("%02x ",  buffer[i]);
+        }
+        printf("\r\n=====================================================================\r\n");
+        transaction_ID = transaction_ID + 1;
+        return number_of_bytes;
+    }
+    
+
+private:
+
+
+};
+
 
 int main() {
     printf("\r\nStarting socket demo\r\n\r\n");
@@ -258,7 +288,40 @@ int main() {
 
     SocketDemo *example = new SocketDemo();
     MBED_ASSERT(example);
-    example->run();
+    Modbus_Protocol *modbus = new Modbus_Protocol();
+    MBED_ASSERT(modbus); 
+    
+    // check with ifconfig or ipconfig
+    const char* modbus_ip = "192.168.0.37";
+    int modbus_port = 502;
+    example->run(modbus_ip, modbus_port);
+
+    // ThisThread::sleep_for(1s);
+    wait_ns(1000);
+    // thread.start(callback(blink, &led3));
+    modbus->start();
+    
+
+    while(running_keyboard){
+        char ch = getchar();
+        printf("Input char : ");
+        putchar(ch);
+        
+        if(ch == 'q'){
+            printf("\r\nQuit\r\n");
+            break;
+        }else if(ch == '3'){
+            printf("\r\nRead Holding Register\r\n");
+            modbus->receive_response(20);
+        }else if(ch == '6'){
+            printf("\r\nWrite Holding Register\r\n");
+        }
+        wait_ns(10);
+    }
+
+    running = false; 
+    printf("End of Main\r\n");
+    thread.join();  // blocking
 
     return 0;
 }
