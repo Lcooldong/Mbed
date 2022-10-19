@@ -105,7 +105,7 @@ int main()
                 
                 if(string_cursor > 0)
                 {
-                    string_buffer[string_cursor-1] = " \b";
+                    string_buffer[string_cursor-1] = '\b';
                     cout << string_buffer[string_cursor-1] <<flush;
                     if(string_cursor == string_buffer.length()){
                         string_buffer.pop_back();
